@@ -1,11 +1,5 @@
 package org.lsposed.patch;
 
-import static org.lsposed.lspatch.share.Constants.CONFIG_ASSET_PATH;
-import static org.lsposed.lspatch.share.Constants.EMBEDDED_MODULES_ASSET_PATH;
-import static org.lsposed.lspatch.share.Constants.LOADER_DEX_ASSET_PATH;
-import static org.lsposed.lspatch.share.Constants.ORIGINAL_APK_ASSET_PATH;
-import static org.lsposed.lspatch.share.Constants.PROXY_APP_COMPONENT_FACTORY;
-
 import com.android.tools.build.apkzlib.sign.SigningExtension;
 import com.android.tools.build.apkzlib.sign.SigningOptions;
 import com.android.tools.build.apkzlib.zip.AlignmentRules;
@@ -20,7 +14,6 @@ import com.wind.meditor.core.ManifestEditor;
 import com.wind.meditor.property.AttributeItem;
 import com.wind.meditor.property.ModificationProperty;
 import com.wind.meditor.utils.NodeValue;
-
 import org.apache.commons.io.FilenameUtils;
 import org.lsposed.lspatch.share.Constants;
 import org.lsposed.lspatch.share.LSPConfig;
@@ -30,23 +23,13 @@ import org.lsposed.patch.util.JavaLogger;
 import org.lsposed.patch.util.Logger;
 import org.lsposed.patch.util.ManifestParser;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Base64;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
+
+import static org.lsposed.lspatch.share.Constants.*;
 
 public class LSPatch {
 
@@ -93,6 +76,12 @@ public class LSPatch {
     @Parameter(names = {"-m", "--embed"}, description = "Embed provided modules to apk")
     private List<String> modules = new ArrayList<>();
 
+    @Parameter(names = {"-s", "--signature"}, description = "apk signature")
+    private String signature = null;
+
+    @Parameter(names = {"-ps", "--print-signature"}, description = "print apk signature")
+    private boolean printSig = false;
+
     private static final String ANDROID_MANIFEST_XML = "AndroidManifest.xml";
     private static final HashSet<String> ARCHES = new HashSet<>(Arrays.asList(
             "armeabi-v7a",
@@ -137,10 +126,22 @@ public class LSPatch {
             lspatch.jCommander.usage();
             return;
         }
+        if (lspatch.printSig) {
+            lspatch.printSig();
+            return;
+        }
         try {
             lspatch.doCommandLine();
         } catch (PatchError e) {
             e.printStackTrace(System.err);
+        }
+    }
+
+    private void printSig() {
+        for (var apk : apkPaths) {
+            String s = ApkSignatureHelper.getApkSignInfo(new File(apk).getAbsolutePath());
+            logger.i(apk);
+            logger.i(s);
         }
     }
 
@@ -205,12 +206,14 @@ public class LSPatch {
                 throw new PatchError("Failed to register signer", e);
             }
 
-            String originalSignature = null;
-            if (sigbypassLevel > 0) {
-                originalSignature  = ApkSignatureHelper.getApkSignInfo(srcApkFile.getAbsolutePath());
+            String originalSignature = signature;
+            if ((originalSignature == null || originalSignature.isEmpty()) && sigbypassLevel > 0) {
+                originalSignature = ApkSignatureHelper.getApkSignInfo(srcApkFile.getAbsolutePath());
                 if (originalSignature == null || originalSignature.isEmpty()) {
                     throw new PatchError("get original signature failed");
                 }
+            }
+            if (sigbypassLevel > 0) {
                 logger.d("Original signature\n" + originalSignature);
             }
 
@@ -292,7 +295,8 @@ public class LSPatch {
                 if (name.startsWith("classes") && name.endsWith(".dex")) continue;
                 if (dstZFile.get(name) != null) continue;
                 if (name.equals("AndroidManifest.xml")) continue;
-                if (name.startsWith("META-INF") && (name.endsWith(".SF") || name.endsWith(".MF") || name.endsWith(".RSA"))) continue;
+                if (name.startsWith("META-INF") && (name.endsWith(".SF") || name.endsWith(".MF") || name.endsWith(".RSA")))
+                    continue;
                 srcZFile.addFileLink(name, name);
             }
 
